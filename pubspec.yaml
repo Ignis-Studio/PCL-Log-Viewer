@@ -1,0 +1,37 @@
+name: pcl_ce_log_viewer
+description: "下一代 PCL CE 日志查看器，使用 Flutter 实现。"
+version: 1.0.0+1
+environment:
+  sdk: ^3.10.3
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  file_picker: ^10.3.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: LXGW-WenKai
+      fonts:
+        - asset: assets/fonts/LXGWWenKai-Regular.ttf
+    - family: CaskaydiaCoveNerdFont
+      fonts:
+        - asset: assets/fonts/CaskaydiaCoveNerdFontMono-Regular.ttf
+        - asset: assets/fonts/CaskaydiaCoveNerdFontMono-Italic.ttf
+          style: italic
+        - asset: assets/fonts/CaskaydiaCoveNerdFontMono-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/CaskaydiaCoveNerdFontMono-BoldItalic.ttf
+          weight: 700
+          style: italic
+        - asset: assets/fonts/CaskaydiaCoveNerdFontMono-Light.ttf
+          weight: 300
+        - asset: assets/fonts/CaskaydiaCoveNerdFontMono-LightItalic.ttf
+          weight: 300
+          style: italic
+
