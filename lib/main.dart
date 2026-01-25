@@ -6,7 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'extendable_log_widget.dart';
 
 void main() {
-  runApp(const MaterialApp(home: LogViewerPage()));
+  runApp(const MaterialApp(title: 'PCL Log Viewer', home: LogViewerPage()));
 }
 
 
@@ -32,6 +32,31 @@ class LogEntry {
 enum LogFormat {
   pclCE,    
   pcl,  
+}
+
+
+class LogParseResult {
+  final List<LogEntry> logs;
+  final String? version;
+  final String? identity;
+  final String? version_type;
+  final String? exc_path;
+  final String? sys_encoding;
+  final bool? isAdmin;
+  final String? exit_flag;
+  final String? sys_ver;
+
+  LogParseResult({
+    required this.logs,
+    this.version,
+    this.identity,
+    this.version_type,
+    this.exc_path,
+    this.sys_encoding,
+    this.isAdmin,
+    this.exit_flag,
+    this.sys_ver,
+  });
 }
 
 
@@ -65,7 +90,7 @@ RegExp _getPatternForFormat(LogFormat format) {
 }
 
 
-List<LogEntry> parseLogFile(Map<String, dynamic> params) {
+LogParseResult parseLogFile(Map<String, dynamic> params) {
   final String filePath = params['filePath'];
   final LogFormat format = params['format'];
   final File file = File(filePath);
@@ -81,6 +106,50 @@ List<LogEntry> parseLogFile(Map<String, dynamic> params) {
   String? currentP3; 
   StringBuffer messageBuffer = StringBuffer();
 
+  String? version;
+  String? identity;
+  String? version_type;
+  String? exc_path;
+  String? sys_encoding;
+  bool? isAdmin;
+  String? exit_flag;
+  String? sys_ver;
+
+  // Helper to parse metadata from a given string. Returns true if metadata was found.
+  bool parseMetadata(String text) {
+    if (text.contains('程序版本：')) {
+      version = text.substring(text.indexOf('程序版本：') + 5).trim();
+      return true;
+    } else if (text.contains('识别码：')) {
+      final info = text.substring(text.indexOf('识别码：') + 4).trim();
+      if (format == LogFormat.pclCE) {
+        identity = info;
+      } else {
+        final parts = info.split('，');
+        identity = parts.isNotEmpty ? parts[0] : null;
+        version_type = parts.length > 1 ? parts[1] : null;
+      }
+      return true;
+    } else if (text.contains('程序路径：')) {
+      exc_path = text.substring(text.indexOf('程序路径：') + 5).trim();
+      return true;
+    } else if (text.contains('系统编码：')) {
+      sys_encoding = text.substring(text.indexOf('系统编码：') + 5).trim();
+      return true;
+    } else if (text.contains('管理员权限：')) {
+      final value = text.substring(text.indexOf('管理员权限：') + 6).trim();
+      isAdmin = value.toLowerCase() == 'true';
+      return true;
+    } else if (text.contains('程序已退出，返回值：')) {
+      exit_flag = text.substring(text.indexOf('程序已退出，返回值：') + 10).trim();
+      return true;
+    } else if (format == LogFormat.pclCE && text.contains('系统版本：')) {
+      sys_ver = text.substring(text.indexOf('系统版本：') + 5).trim();
+      return true;
+    }
+    return false;
+  }
+
   for (var line in lines) {
     final match = pattern.firstMatch(line);
 
@@ -94,20 +163,28 @@ List<LogEntry> parseLogFile(Map<String, dynamic> params) {
       currentTimestamp = match.group(1);
       messageBuffer.clear();
 
+      String messageContent;
       if (format == LogFormat.pclCE) {
         currentP1 = match.group(2); 
         currentP2 = match.group(3); 
         currentP3 = match.group(4); 
-        messageBuffer.write(match.group(5)); 
+        messageContent = match.group(5) ?? '';
       } else {
         currentP1 = match.group(2); 
         currentP2 = match.group(3) ?? "/"; 
         currentP3 = null;           
-        messageBuffer.write(match.group(4)); 
+        messageContent = match.group(4) ?? '';
       }
 
+      messageBuffer.write(messageContent);
+      parseMetadata(messageContent); // Also check for metadata within the log message
+
     } else {
-      if (currentTimestamp != null) {
+      // Not a log line, so it could be metadata or a multi-line message
+      final bool isMetadata = parseMetadata(line);
+
+      // Only append to message buffer if it's not a metadata line
+      if (!isMetadata && currentTimestamp != null) {
         messageBuffer.writeln();
         messageBuffer.write(line);
       }
@@ -120,7 +197,17 @@ List<LogEntry> parseLogFile(Map<String, dynamic> params) {
     ));
   }
 
-  return parsedLogs;
+  return LogParseResult(
+    logs: parsedLogs,
+    version: version,
+    identity: identity,
+    version_type: version_type,
+    exc_path: exc_path,
+    sys_encoding: sys_encoding,
+    isAdmin: isAdmin,
+    exit_flag: exit_flag,
+    sys_ver: sys_ver,
+  );
 }
 
 
@@ -137,8 +224,16 @@ class _LogViewerPageState extends State<LogViewerPage> {
   String? _fileName;
   File? _currentFile; 
 
-  
   LogFormat _selectedFormat = LogFormat.pclCE;
+
+  String? _version;
+  String? _identity;
+  String? _version_type;
+  String? _exc_path;
+  String? _sys_encoding;
+  bool? _isAdmin;
+  String? _exit_flag;
+  String? _sys_ver;
 
   final ScrollController _verticalController = ScrollController();
   final ScrollController _horizontalController = ScrollController();
@@ -167,7 +262,6 @@ class _LogViewerPageState extends State<LogViewerPage> {
       setState(() {
         _currentFile = File(result.files.single.path!);
         _fileName = result.files.single.name;
-        _logs = []; 
       });
       _parseLogs(); 
     }
@@ -189,18 +283,37 @@ class _LogViewerPageState extends State<LogViewerPage> {
   Future<void> _parseLogs() async {
     if (_currentFile == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _logs = [];
+      _version = null;
+      _identity = null;
+      _version_type = null;
+      _exc_path = null;
+      _sys_encoding = null;
+      _isAdmin = null;
+      _exit_flag = null;
+      _sys_ver = null;
+    });
 
     final params = {
       'filePath': _currentFile!.path,
       'format': _selectedFormat,
     };
     
-    final parsedLogs = await compute(parseLogFile, params);
+    final result = await compute(parseLogFile, params);
 
     if (mounted) {
       setState(() {
-        _logs = parsedLogs;
+        _logs = result.logs;
+        _version = result.version;
+        _identity = result.identity;
+        _version_type = result.version_type;
+        _exc_path = result.exc_path;
+        _sys_encoding = result.sys_encoding;
+        _isAdmin = result.isAdmin;
+        _exit_flag = result.exit_flag;
+        _sys_ver = result.sys_ver;
         _isLoading = false;
       });
     }
@@ -210,28 +323,72 @@ class _LogViewerPageState extends State<LogViewerPage> {
   Color _getLevelColor(String? level) {
     if (level == null) return Colors.white;
     switch (level.toUpperCase()) {
-      case 'ERR': case 'ERROR': case 'FTL!': return const Color(0xFFFFEBEE);
-      case 'WRN': case 'WARN': return const Color(0xFFFFF3E0);
-      case 'DBG': case 'DEBUG': return const Color(0xFFE8F5E9);
+      case 'ERR!': case 'FTL!': return const Color(0xFFFFEBEE);
+      case 'WARN': return const Color(0xFFFFF3E0);
+      case 'DBG': return const Color(0xFFE8F5E9);
       default: return Colors.white;
     }
   }
 
-  double _calculateTotalWidth() {
-    double total = _LogHeader.timeWidth + _LogHeader.messageWidth + 32; 
-    if (_selectedFormat == LogFormat.pclCE) {
-      total += _LogHeader.levelWidth + _LogHeader.componentWidth + _LogHeader.moduleWidth;
-    } else {
-      total += _LogHeader.threadWidth + _LogHeader.moduleWidth;
+  Widget _buildInfoPanel() {
+    Container container(Widget? child) => Container(
+      width: 350,
+      padding: const EdgeInsets.all(16.0),
+      color: Colors.grey.shade50,
+      child: child,
+    );
+
+    if (_isLoading) {
+      return container(const Center(child: CircularProgressIndicator()));
     }
-    return total;
+
+    final List<Widget> children = [];
+
+    if (_version != null) {
+      children.add(Text('PCL 版本：$_version${_version_type == null ? '' : '（$_version_type）'}', style: commonStyle));
+    }
+    if (_identity != null) {
+      children.add(Text('识别码：$_identity', style: commonStyle));
+    }
+    if (_exc_path != null) {
+      children.add(Text('程序路径：$_exc_path', style: commonStyle));
+    }
+    if (_sys_encoding != null) {
+      children.add(Text('日志所在的系统编码：$_sys_encoding', style: commonStyle));
+    }
+    if (_selectedFormat == LogFormat.pclCE && _sys_ver != null) {
+      children.add(Text('日志所在的系统版本：$_sys_ver', style: commonStyle));
+    }
+    if (_isAdmin != null) {
+      children.add(Text(
+        _isAdmin! ? '日志发生时程序正在使用管理员权限。' : '日志发生时程序未使用管理员权限。',
+        style: commonStyle.copyWith(color: _isAdmin! ? Colors.red : null),
+      ));
+    }
+    if (_logs.isNotEmpty) {
+      final bool success = _exit_flag?.toLowerCase() == 'success';
+      children.add(Text(
+        success ? '程序退出成功' : '程序退出失败',
+        style: commonStyle.copyWith(color: success ? Colors.green : Colors.red),
+      ));
+    }
+
+    if (children.isEmpty && _fileName != null) {
+      return container(Center(child: Text("无法从日志中提取元数据。\n请检查日志格式是否正确。", style: commonStyle, textAlign: TextAlign.center)));
+    }
+
+    return container(
+      ListView(
+        children: children.map((e) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: e)).toList(),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('LogViewer'),
+        title: const Text('PCL Log Viewer'),
         actions: [
           if (_fileName != null)
             Center(child: Padding(
@@ -281,60 +438,82 @@ class _LogViewerPageState extends State<LogViewerPage> {
           
           
           Expanded(
-            child: _logs.isEmpty
-                ? Center(child: Text("请选择文件并指定正确的日志格式。如果日志长时间不加载，请检查日志格式。", style: commonStyle.copyWith(fontWeight: FontWeight.bold)))
-                : Scrollbar(
-                    controller: _horizontalController,
-                    thumbVisibility: true,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final tableWidth = _calculateTotalWidth();
-                        final screenWidth = constraints.maxWidth;
-                        
-                        return SingleChildScrollView(
+            child: Row(
+              children: [
+                Expanded(
+                  child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _logs.isEmpty
+                      ? Center(child: Text("请选择文件并指定正确的日志格式。\n如果日志长时间不加载，请检查日志格式。", style: commonStyle.copyWith(fontWeight: FontWeight.bold), textAlign: TextAlign.center))
+                      : Scrollbar(
                           controller: _horizontalController,
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: max(tableWidth, screenWidth),
-                            child: Align(
-                              alignment: Alignment.topLeft,
-                              child: SizedBox(
-                                width: tableWidth,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    _LogHeader(format: _selectedFormat, style: commonStyle),
-                                    const Divider(height: 1),
-                                    Expanded(
-                                      child: Scrollbar(
-                                        controller: _verticalController,
-                                        thumbVisibility: true,
-                                        child: ListView.builder(
-                                          controller: _verticalController,
-                                          itemCount: _logs.length,
-                                          itemBuilder: (context, index) {
-                                            final log = _logs[index];
-                                            return _LogDataRow(
-                                              log: log,
-                                              format: _selectedFormat,
-                                              style: commonStyle,
-                                              rowColor: _selectedFormat == LogFormat.pclCE
-                                                  ? _getLevelColor(log.level)
-                                                  : Colors.white,
-                                            );
-                                          },
-                                        ),
+                          thumbVisibility: true,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final screenWidth = constraints.maxWidth;
+                              
+                              double otherColumnsWidth = _LogHeader.timeWidth + 32; // 32 is horizontal padding
+                              if (_selectedFormat == LogFormat.pclCE) {
+                                otherColumnsWidth += _LogHeader.levelWidth + _LogHeader.componentWidth + _LogHeader.moduleWidth;
+                              } else {
+                                otherColumnsWidth += _LogHeader.threadWidth + _LogHeader.moduleWidth;
+                              }
+
+                              final double messageWidth = max(200, screenWidth - otherColumnsWidth);
+                              final double tableWidth = otherColumnsWidth + messageWidth;
+
+
+                              return SingleChildScrollView(
+                                controller: _horizontalController,
+                                scrollDirection: Axis.horizontal,
+                                child: SizedBox(
+                                  width: tableWidth,
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: SizedBox(
+                                      width: tableWidth,
+                                      height: constraints.maxHeight,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          _LogHeader(format: _selectedFormat, style: commonStyle, messageWidth: messageWidth),
+                                          const Divider(height: 1),
+                                          Expanded(
+                                            child: Scrollbar(
+                                              controller: _verticalController,
+                                              thumbVisibility: true,
+                                              child: ListView.builder(
+                                                controller: _verticalController,
+                                                itemCount: _logs.length,
+                                                itemBuilder: (context, index) {
+                                                  final log = _logs[index];
+                                                  return _LogDataRow(
+                                                    log: log,
+                                                    format: _selectedFormat,
+                                                    style: commonStyle,
+                                                    messageWidth: messageWidth,
+                                                    rowColor: _selectedFormat == LogFormat.pclCE
+                                                        ? _getLevelColor(log.level)
+                                                        : Colors.white,
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            }
                           ),
-                        );
-                      }
-                    ),
-                  ),
+                        ),
+                ),
+                const VerticalDivider(width: 1),
+                _buildInfoPanel(),
+              ],
+            ),
           ),
         ],
       ),
@@ -346,8 +525,9 @@ class _LogViewerPageState extends State<LogViewerPage> {
 class _LogHeader extends StatelessWidget {
   final LogFormat format;
   final TextStyle style;
+  final double messageWidth;
 
-  const _LogHeader({required this.format, required this.style});
+  const _LogHeader({required this.format, required this.style, required this.messageWidth});
 
 
   static const double timeWidth = 140;
@@ -355,7 +535,6 @@ class _LogHeader extends StatelessWidget {
   static const double componentWidth = 120;
   static const double moduleWidth = 140;
   static const double threadWidth = 320;
-  static const double messageWidth = 800;
 
   @override
   Widget build(BuildContext context) {
@@ -394,12 +573,14 @@ class _LogDataRow extends StatelessWidget {
   final LogFormat format;
   final TextStyle style;
   final Color rowColor;
+  final double messageWidth;
 
   const _LogDataRow({
     required this.log,
     required this.format,
     required this.style,
     required this.rowColor,
+    required this.messageWidth,
   });
 
   @override
@@ -410,13 +591,13 @@ class _LogDataRow extends StatelessWidget {
             _buildCell(log.level ?? "", _LogHeader.levelWidth, style.copyWith(fontWeight: FontWeight.bold)),
             _buildCell(log.component ?? "", _LogHeader.componentWidth, style),
             _buildCell(log.module, _LogHeader.moduleWidth, style),
-            _buildMessageCell(log.message, _LogHeader.messageWidth, style),
+            _buildMessageCell(log.message, messageWidth, style),
           ]
         : [
             _buildCell(log.timestamp, _LogHeader.timeWidth, style),
             _buildCell(log.thread ?? "", _LogHeader.threadWidth, style.copyWith(color: Colors.blue.shade800)),
             _buildCell(log.module, _LogHeader.moduleWidth, style),
-            _buildMessageCell(log.message, _LogHeader.messageWidth, style),
+            _buildMessageCell(log.message, messageWidth, style),
           ];
 
     return Container(
