@@ -225,6 +225,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
   File? _currentFile; 
 
   LogFormat _selectedFormat = LogFormat.pclCE;
+  bool _showOnlyErrors = false;
 
   String? _version;
   String? _identity;
@@ -365,7 +366,29 @@ class _LogViewerPageState extends State<LogViewerPage> {
         style: commonStyle.copyWith(color: _isAdmin! ? Colors.red : null),
       ));
     }
+
     if (_logs.isNotEmpty) {
+      if (children.isNotEmpty) {
+        children.add(const Divider(height: 24));
+      }
+      children.add(
+        CheckboxListTile(
+          title: Text("仅显示异常消息", style: commonStyle),
+          value: _showOnlyErrors,
+          onChanged: (bool? value) {
+            if (value != null) {
+              setState(() {
+                _showOnlyErrors = value;
+              });
+            }
+          },
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+      );
+      
+      children.add(const SizedBox(height: 8));
+
       final bool success = _exit_flag?.toLowerCase() == 'success';
       children.add(Text(
         success ? '程序退出成功' : '程序退出失败',
@@ -386,6 +409,21 @@ class _LogViewerPageState extends State<LogViewerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final List<LogEntry> filteredLogs;
+    if (_showOnlyErrors) {
+      filteredLogs = _logs.where((log) {
+        if (_selectedFormat == LogFormat.pclCE) {
+          final level = log.level?.toUpperCase();
+          return level == 'FTL!' || level == 'ERR!' || level == 'WARN';
+        } else {
+          final message = log.message.toLowerCase();
+          return message.contains('exception') || message.contains('error');
+        }
+      }).toList();
+    } else {
+      filteredLogs = _logs;
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('PCL Log Viewer'),
@@ -393,7 +431,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
           if (_fileName != null)
             Center(child: Padding(
               padding: const EdgeInsets.only(right: 16),
-              child: Text("$_fileName (${_logs.length} 条)"),
+              child: Text("$_fileName (${filteredLogs.length} 条)"),
             ))
         ],
       ),
@@ -484,9 +522,9 @@ class _LogViewerPageState extends State<LogViewerPage> {
                                               thumbVisibility: true,
                                               child: ListView.builder(
                                                 controller: _verticalController,
-                                                itemCount: _logs.length,
+                                                itemCount: filteredLogs.length,
                                                 itemBuilder: (context, index) {
-                                                  final log = _logs[index];
+                                                  final log = filteredLogs[index];
                                                   return _LogDataRow(
                                                     log: log,
                                                     format: _selectedFormat,
