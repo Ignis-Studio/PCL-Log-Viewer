@@ -1,4 +1,4 @@
-package com.example.learn_flutter
+package com.example.pcl_log_viewer
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,6 +1,6 @@
 {
-    "name": "learn_flutter",
-    "short_name": "learn_flutter",
+    "name": "pcl_log_viewer",
+    "short_name": "pcl_log_viewer",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
