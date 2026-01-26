@@ -1,16 +1,4 @@
-# pcl_log_viewer
-
-A new Flutter project.
-
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+# PCL CE 日志查看器  
+  
+下一代 PCL CE 日志查看器，使用 Flutter 进行“高性能”实现。  
+LICENSE: Apache License 2.0  
